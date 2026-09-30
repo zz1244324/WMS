@@ -1,0 +1,233 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
+import { ArrowUpFromLine, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { PageHeader } from '@/components/common/PageHeader'
+import { EmptyState } from '@/components/common/EmptyState'
+import { ConfirmDialog } from '@/components/common/ConfirmDialog'
+import { OutboundDialog } from '@/components/dialogs/OutboundDialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { api, errMsg } from '@/lib/api'
+import { qty } from '@/lib/format'
+import type { Outbound, Product } from '@/types'
+
+interface Props {
+  products: Product[]
+  version: number
+  onChanged: () => void
+}
+
+const ALL = '__all__'
+
+export function Outbounds({ products, version, onChanged }: Props) {
+  const [rows, setRows] = useState<Outbound[]>([])
+  const [loading, setLoading] = useState(true)
+  const [keyword, setKeyword] = useState('')
+  const [productFilter, setProductFilter] = useState(ALL)
+
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<Outbound | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Outbound | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await api.outbounds())
+    } catch (err) {
+      toast.error(errMsg(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load, version])
+
+  const list = useMemo(() => {
+    const k = keyword.trim().toLowerCase()
+    return rows.filter((r) => {
+      if (productFilter !== ALL && r.product_id !== Number(productFilter)) return false
+      if (!k) return true
+      return [r.product_name, r.recipient, r.note]
+        .filter(Boolean)
+        .some((f) => String(f).toLowerCase().includes(k))
+    })
+  }, [rows, keyword, productFilter])
+
+  const totalQty = list.reduce((s, r) => s + Number(r.qty), 0)
+
+  const doDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      await api.deleteOutbound(deleteTarget.id)
+      toast.success('出库记录已删除，库存已回补')
+      setDeleteTarget(null)
+      onChanged()
+    } catch (err) {
+      toast.error(errMsg(err))
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <PageHeader title="出库记录" description="记录领用、消耗或发货，当前库存会自动扣减。">
+        <Button
+          className="cursor-pointer"
+          onClick={() => {
+            setEditTarget(null)
+            setDialogOpen(true)
+          }}
+        >
+          <Plus className="mr-1.5 h-4 w-4" />
+          新增出库
+        </Button>
+      </PageHeader>
+
+      <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜索商品 / 领用人 / 备注"
+            className="pl-8"
+          />
+        </div>
+        <Select value={productFilter} onValueChange={setProductFilter}>
+          <SelectTrigger className="w-full cursor-pointer sm:w-[220px]">
+            <SelectValue placeholder="全部商品" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>全部商品</SelectItem>
+            {products.map((p) => (
+              <SelectItem key={p.id} value={String(p.id)}>
+                {p.name}
+                {p.spec ? ` · ${p.spec}` : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        {loading ? (
+          <div className="py-16 text-center text-sm text-slate-500">加载中…</div>
+        ) : list.length === 0 ? (
+          <EmptyState
+            icon={ArrowUpFromLine}
+            title={rows.length === 0 ? '还没有出库记录' : '没有符合条件的记录'}
+            description={
+              products.length === 0
+                ? '请先到「商品档案」新增商品，并录入至少一条入库记录。'
+                : '东西被领走或消耗掉时在这里记一笔，库存会自动扣减。'
+            }
+          >
+            {products.length > 0 ? (
+              <Button
+                className="cursor-pointer"
+                onClick={() => {
+                  setEditTarget(null)
+                  setDialogOpen(true)
+                }}
+              >
+                <Plus className="mr-1.5 h-4 w-4" />
+                新增出库
+              </Button>
+            ) : null}
+          </EmptyState>
+        ) : (
+          <>
+            <div className="scrollbar-thin overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50/80">
+                    <TableHead className="w-[110px]">出库日期</TableHead>
+                    <TableHead className="min-w-[200px]">商品</TableHead>
+                    <TableHead className="text-right">数量</TableHead>
+                    <TableHead>领用人 / 去向</TableHead>
+                    <TableHead className="min-w-[160px]">备注</TableHead>
+                    <TableHead className="w-[90px] text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {list.map((r) => (
+                    <TableRow key={r.id} className="transition-colors duration-150 hover:bg-slate-50/70">
+                      <TableCell className="tnum text-slate-600">{r.outbound_date}</TableCell>
+                      <TableCell>
+                        <p className="truncate font-medium text-slate-800">{r.product_name}</p>
+                        <p className="truncate text-xs text-slate-400">
+                          {r.spec || '—'}
+                          {r.unit ? ` · ${r.unit}` : ''}
+                        </p>
+                      </TableCell>
+                      <TableCell className="tnum text-right font-medium text-slate-700">
+                        −{qty(r.qty)}
+                      </TableCell>
+                      <TableCell className="text-slate-600">{r.recipient || '—'}</TableCell>
+                      <TableCell className="max-w-[240px] truncate text-slate-500">{r.note || '—'}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="编辑"
+                            aria-label="编辑"
+                            className="h-8 w-8 cursor-pointer text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                            onClick={() => {
+                              setEditTarget(r)
+                              setDialogOpen(true)
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="删除"
+                            aria-label="删除"
+                            className="h-8 w-8 cursor-pointer text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                            onClick={() => setDeleteTarget(r)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="tnum flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50/60 px-4 py-2.5 text-xs text-slate-600">
+              <span>
+                共 <span className="font-semibold text-slate-800">{list.length}</span> 条出库记录
+                {list.length !== rows.length ? `（已从 ${rows.length} 条中筛选）` : ''}
+              </span>
+              <span>
+                数量合计 <span className="font-semibold text-slate-800">{qty(totalQty)}</span>
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+
+      <OutboundDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        outbound={editTarget}
+        products={products}
+        onSaved={onChanged}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        title="删除这条出库记录？"
+        description="删除后库存会自动回补，操作无法撤销。"
+        confirmText="确认删除"
+        onConfirm={doDelete}
+      />
+    </div>
+  )
+}

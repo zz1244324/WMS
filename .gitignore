@@ -1,0 +1,27 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# 本地数据库（你自己的数据，不要提交）
+server/data/
+server/cache/
+
+# 打包产物
+release/
+build/sea-bundle.cjs
+build/sea-prep.blob
+build/sea-config.json
+build/icon.ico
+build/icon-preview.png
+server/embedded-assets.js
+
+# 日志
+server/*.log
+npm-debug.log*
+*.tsbuildinfo
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
